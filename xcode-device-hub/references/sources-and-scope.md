@@ -12,9 +12,13 @@ The originating session used Xcode **27.0, build 27A266a**, and an **iPhone 18 P
 - Desktop automation could not attach to Device Hub even though the user could click the simulated device. This was not evidence that the simulator was frozen.
 - `xcrun simctl` could boot the device, install and launch a simulator app, and capture its screen.
 - A temporary XCTest UI target could activate the app, inspect its accessibility tree, and perform coordinate taps, double taps, and label-based taps.
-- A missing Expo native module was resolved for the scoped check by using a compatible clean source snapshot. That result was explicitly distinct from testing a newer TestFlight binary.
+- A development client missing a native module was handled for the scoped check by using a compatible clean source snapshot. That result was kept distinct from testing a newer release binary.
 
-These are observations from one installation, not a promise about every Xcode 27 build or automation connector. Probe the active installation and retain uncertainty when evidence differs.
+## A second installation, 2026-09-30
+
+A separate Mac on the same Xcode 27.0 build (27A266a) confirmed the layout: `Simulator.app` absent, `DeviceHub.app` present with `DevicesTrampoline` as its launcher, installed runtimes iOS 26.4, 26.5 and 27.0, and host-level `simctl list` working. A different agent used the existing-UI-test-target route on an iPhone 18 Pro running iOS 27.0: a temporary test file, the project's own launch-argument fixture (no sign-in), per-keystroke typing, and attachments exported with `xcresulttool`. It found a real problem unit tests had missed — an inline picker revealed while the software keyboard was still up appeared behind the keyboard.
+
+These are observations from two installations, not a promise about every Xcode 27 build or automation connector. Probe the active installation and retain uncertainty when evidence differs.
 
 ## Apple Developer Forums
 
