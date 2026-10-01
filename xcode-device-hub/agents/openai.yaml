@@ -1,0 +1,4 @@
+interface:
+  display_name: "Xcode Device Hub"
+  short_description: "Recover simulator workflows across Xcode 26 and 27"
+  default_prompt: "Use $xcode-device-hub to locate the simulator UI, diagnose access failures, and verify my app on the selected iOS runtime."
