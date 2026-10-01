@@ -1,4 +1,4 @@
-# Helpful Skills
+# Helpful Skills for Breaking Changes
 
 Reusable agent skills for navigating breaking changes in development tools.
 
