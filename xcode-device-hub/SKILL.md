@@ -1,25 +1,25 @@
 ---
 name: xcode-device-hub
-description: Locate and operate iOS simulator workflows across Xcode 26 and 27, including Device Hub, missing Simulator.app paths, sandbox-related CoreSimulator failures, and XCTest fallback when desktop automation cannot attach. Use for simulator setup, troubleshooting, or requested app acceptance checks; not for general iOS implementation work.
+description: Locate and operate iOS simulator workflows across Xcode 26 and 27, including Device Hub, a missing Simulator.app, sandbox-related CoreSimulator failures, and a simctl + XCTest route for checking an app's UI when desktop automation can't attach or simctl can't send taps. Use for simulator setup, troubleshooting, or checking that an app behaves as intended on a simulator; not for general iOS implementation work.
 ---
 
 # Xcode Device Hub
 
-Get the requested app running on the intended simulator and verify its visible behavior. Discover the installed layout before diagnosing missing software.
+Get the intended app running on the intended simulator and verify its visible behavior. Probe the installed layout before diagnosing missing software: a changed tool layout is the most common way an outdated assumption turns into a confident wrong diagnosis.
 
 ## Discover the actual installation
 
-Run `python3 scripts/diagnose.py` from this skill's directory. It reads the selected/effective developer directory, Xcode version, frontend bundles, runtimes, and devices. It does not explicitly boot, erase, install, or change the selected Xcode.
+Run `python3 scripts/diagnose.py` from this skill's directory. It reads the selected/effective developer directory, Xcode version, frontend bundles, runtimes, and devices. It does not boot, erase, install, or change the selected Xcode. Add `--redact` before sharing its output.
 
 Treat these as separate facts:
 
 - Xcode version and build number.
 - Effective developer directory, including a possible `DEVELOPER_DIR` override.
 - Frontend application: Simulator or Device Hub.
-- Simulated device model, runtime version, UUID, and boot state.
+- Simulated device model, runtime version, UDID, and boot state.
 - Application binary and source revision actually under test.
 
-An iPhone model name does not identify its iOS runtime. Check the runtime grouping in `xcrun simctl list devices available` or its JSON output.
+A device model name does not identify its OS runtime. Check the runtime grouping in `xcrun simctl list devices available` or its JSON output.
 
 Observed layouts, to probe rather than assume:
 
@@ -28,66 +28,77 @@ Observed layouts, to probe rather than assume:
 | Traditional Simulator | `Applications/Simulator.app` |
 | Xcode 27 Device Hub | `../Applications/DeviceHub.app` |
 
-On the verified Xcode 27.0 build, Device Hub was also available in **Xcode > Open Developer Tool > Device Hub**. The traditional Simulator.app path was absent. A missing old path alone does not establish a broken Xcode installation.
+On Xcode 27.0, Device Hub is also in **Xcode > Open Developer Tool > Device Hub**, and the traditional Simulator.app path is absent. A missing old path alone does not mean Xcode is broken.
 
-For the selected installation, once the bundle is confirmed present:
+Once the bundle is confirmed present:
 
 ```sh
-xcode_dev_dir="$(xcode-select -p)"
+xcode_dev_dir="${DEVELOPER_DIR:-$(xcode-select -p)}"
 open "$xcode_dev_dir/../Applications/DeviceHub.app"
 ```
 
-If `DEVELOPER_DIR` is set, use its resolved developer directory instead. Do not change global `xcode-select` merely to launch a frontend; prefer a per-command override when another installed version is needed.
+Do not change the global `xcode-select` just to launch a frontend; use a per-command `DEVELOPER_DIR` when another installed version is needed.
 
 ## Classify failures before changing anything
 
 | Evidence | Next action |
 | --- | --- |
-| Old Simulator.app path is absent | Probe Device Hub and the installed Xcode menu. |
-| `open` reports `kLSNoExecutableErr`, but the declared executable exists or the app is visibly running | Check the execution environment. Retry the exact launch through the approved host-access mechanism. Do not recommend reinstalling yet. |
+| Old Simulator.app path is absent | Probe Device Hub and the Xcode menu. |
+| `open` reports `kLSNoExecutableErr`, but the declared executable exists or the app is visibly running | Suspect the execution environment (sandbox). Retry the exact launch through your environment's approved host-access mechanism. Do not recommend reinstalling yet. |
 | `simctl` reports invalid CoreSimulator connections plus `Operation not permitted` | Suspect sandbox access. Retry the read-only device listing with approved access before diagnosing the service. |
-| Host-level `simctl list` works and the device boots | CoreSimulator is available; focus on the remaining frontend or app problem. |
-| Desktop automation times out while the user can click the device | Treat it as an automation attachment problem. Do not describe the simulator as frozen. |
-| Simulator boots but the app is absent | Install a compatible simulator build or build one. Boot success is not app acceptance. |
-| Expo reports a missing native module | Match the development client's native modules to the source. Metro reload cannot add native code. |
+| Host-level `simctl list` works and the device boots | CoreSimulator is fine; focus on the remaining frontend or app problem. |
+| Desktop automation times out while a person can click the device | An automation attachment problem, not a frozen simulator. |
+| Simulator boots but the app is absent | Install a compatible simulator build or build one. Booting is not checking the app. |
+| The app's native layer doesn't match its source (for example a development client missing a native module) | Rebuild the client from the source under test. A JavaScript/asset reload cannot add native code. |
 
-Do not use repeated identical retries as progress. After one meaningful retry or frontend restart, use a different supported route or report the specific blocker. Avoid force-quitting a frontend the user can interact with merely because an automation connector cannot attach.
+One meaningful retry or frontend restart is enough; repeating an identical attempt is not progress. Then use a different supported route or report the specific blocker. Don't force-quit a frontend a person is using just because an automation tool can't attach.
 
 ## Choose a usable runtime
 
-The linked September 2026 forum thread reports that Xcode 27 Device Hub rejects keyboard/mouse input for simulators earlier than iOS 18, plus older tvOS, watchOS, and visionOS versions. A reply attributes this to release-note issue `181945323`. See [sources and scope](references/sources-and-scope.md) before treating this as current behavior in a later build.
+A September 2026 Apple Developer Forums thread reports that Xcode 27 Device Hub ignores keyboard/mouse input for simulators older than iOS 18 (and older tvOS, watchOS, and visionOS); a reply cites release-note issue `181945323`. See [sources and scope](references/sources-and-scope.md) before treating this as current behavior in a later build.
 
-For testing that does not require an older OS, use an installed compatible recent runtime. If reproducing an iOS 17 issue is the task, changing to iOS 27 does not satisfy it. The forum's reported workaround is a pre-27 Xcode's standalone Simulator app, starting the older simulator from that frontend rather than Device Hub. Verify locally; do not automatically replace or uninstall Xcode.
+When the task doesn't need an older OS, use an installed recent runtime. When reproducing an older-OS issue *is* the task, a newer runtime doesn't satisfy it; the reported workaround is the standalone Simulator app from a pre-27 Xcode. Verify locally; never replace or uninstall Xcode on your own initiative.
+
+## Know what each tool can do
+
+| Need | simctl | XCTest UI test | Desktop automation |
+| --- | --- | --- | --- |
+| Boot, install, launch, terminate | yes | launches its own target, or activates an installed app | via the frontend |
+| Screenshot, video | yes (`simctl io`) | yes (attachments) | yes |
+| Tap, type, swipe | **no** | yes | yes, when it can attach |
+| Read the accessibility tree / assert on UI state | no | yes | partially |
+
+So a check that needs input — typing into a field, tapping a button — needs XCTest when desktop automation can't attach. See [the XCTest route](references/xctest-fallback.md).
 
 ## Prepare the correct app
 
-1. Inspect repository instructions, branch, commit, dirty changes, and existing worktrees. Test the intended fix, not whichever checkout happens to be current.
-2. Confirm the selected simulator UUID. Use it explicitly in mutating simctl commands; `booted` can address the wrong device when several are running.
-3. Reuse a simulator-compatible `.app` only when its native modules match the requested source. A physical-device/TestFlight binary is not automatically a simulator binary.
-4. For Expo, identify the dev-client version and source commit. Start Metro from that source with existing development configuration, without printing secret values. Check the actual app screen after launch.
-5. If newer source requires a missing native module, build a matching client. An earlier compatible source snapshot is acceptable only when it answers the requested check; record the changed scope and never report it as verification of the newer release binary.
+1. Read the repository's instructions, branch, commit, uncommitted changes, and existing worktrees. Test the intended change, not whatever checkout happens to be current. Use an isolated worktree or snapshot when needed, and preserve existing edits.
+2. Pick the simulator by UDID and use that UDID in every mutating command. `booted` can hit the wrong device when several are running; don't shut down or reuse a simulator someone else booted.
+3. Reuse a built `.app` only when it matches the source under test and was built for the simulator. A device or TestFlight binary is not a simulator binary.
+4. If a dev server is involved (Metro, Vite, etc.), start it from the source under test with its existing configuration, without printing secrets. If you must test an older compatible snapshot instead, record that and never report it as a check of the newer build.
 
-Use an isolated snapshot or worktree when needed. Preserve existing edits. Record dependency or Metro overrides used in the temporary environment.
+## Reach the screen under test safely
+
+- Prefer the app's own test entry points — launch arguments, fixtures, preview or demo modes — over signing in. They are repeatable and touch no real data.
+- Don't enter real credentials or one-time codes yourself. If a check genuinely needs a signed-in session, ask the person to sign in, then work read-only: open forms, type, cancel; don't save or publish.
+- If the project has a UI test target, put a temporary test file there in a throwaway worktree and don't commit it. Otherwise use a disposable harness project (see the XCTest route).
 
 ## Verify interaction
 
-Prefer the available desktop control tool when it can attach. If it cannot, and the active tool policy permits another method, use simctl for lifecycle/screenshots and XCTest for UI inspection/input. If that policy requires explicit authorization for alternative UI automation, obtain it once and retain it for the agreed scope. This skill does not grant broader permissions.
+Prefer a desktop control tool when it can attach. If it can't, and your environment's policy permits another method, use simctl for lifecycle and screenshots and XCTest for input and inspection. If that policy requires explicit authorization for alternative UI automation, get it once for the agreed scope. This skill grants no permissions.
 
-Read [the XCTest fallback](references/xctest-fallback.md) for that route.
+What makes a UI check real:
 
-For map acceptance:
-
-- Zoom until the intended marker is visibly present. Record its identity and the resulting sheet title, not just a successful tap command.
-- Check the layer's visible state. A switch-label tap may complete without changing the switch; inspect it before proceeding.
-- Verify overlay data actually renders when checking hit precedence.
-- Distinguish an empty-map tap from a real parcel selection. Unshaded land can still be selectable.
-- Verify transitions out of the selected sheet as well as opening it.
-- Establish outcomes with UI assertions, screenshots, or accessibility snapshots. A controller test exiting without errors proves only that the controller ran.
+- **Assert the resulting state, not the input.** "Tap delivered" or "test passed" isn't a result; the field's value, the visible sheet title, the switch's state are. A tap on a control's label can complete without changing the control — inspect it.
+- **Type the way a person does.** Send text one character at a time when the code reacts to each keystroke; pasting a whole string can hide bugs in intermediate states.
+- **Look for things covering the result.** The software keyboard, system alerts, permission prompts, and development-client banners can hide the very control you just revealed. If an element exists but isn't hittable, it's covered or off-screen — say which.
+- **Check both directions.** Opening a sheet and closing it, entering a value and clearing it, invalid input and its recovery.
+- **Keep evidence.** Screenshots or accessibility snapshots for each asserted state. Export XCTest attachments with `xcrun xcresulttool export attachments`.
 
 ## Finish with evidence and cleanup
 
-Record Xcode build, simulator model/runtime, source commit, app binary version, tested transitions, and any remaining release/device gap. Separate physical-device and simulator evidence.
+Record the Xcode build, simulator model and runtime, source commit, app build, the transitions checked, and what remains unchecked (for example a physical device). Keep simulator evidence separate from physical-device evidence.
 
-Restore test settings that you changed and stop test-owned runners and development servers. Do not stop unrelated user processes. Honor requests to close mirroring or IDE applications. Public skill packages should contain no personal paths, credentials, app screenshots, or private project identifiers.
+Restore settings you changed, shut down simulators you booted, remove temporary harness files and worktrees, and stop servers you started. Don't stop processes you didn't start.
 
-Report the actual acceptance result. Do not mark an issue complete solely because the simulator launched, the harness passed, or a different build behaved correctly.
+Report the actual result. A simulator launching, a harness passing, or a different build working is not the same as the requested behavior being verified.

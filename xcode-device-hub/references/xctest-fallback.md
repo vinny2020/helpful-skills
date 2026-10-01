@@ -1,26 +1,29 @@
-# XCTest fallback when desktop attachment fails
+# The XCTest route: input and inspection without desktop automation
 
-Use this after the intended simulator and app are available, and alternative UI automation is authorized under the active environment's rules. Keep the harness in a temporary directory; it should not alter the product's source or tests.
+`simctl` can boot, install, launch, and screenshot, but it cannot tap or type. When a check needs input and no desktop automation tool can attach, drive the app from an XCTest UI test. Use this route only when the simulator and app are available and your environment's rules permit it.
 
-## Device and app preparation
+Keep every harness file temporary: in a throwaway worktree or a disposable project, never committed to the product.
 
-Get the simulator UUID and runtime from the diagnostic report. Check state before booting:
+## 1. Prepare the device and app
+
+Take the simulator UDID and runtime from the diagnostic report.
 
 ```sh
 xcrun simctl list devices available
-xcrun simctl boot "$SIMULATOR_UDID"
+xcrun simctl boot "$SIMULATOR_UDID"            # skip if already booted
 xcrun simctl get_app_container "$SIMULATOR_UDID" "$APP_BUNDLE_ID" app
-# If absent, use a known simulator-compatible binary:
-xcrun simctl install "$SIMULATOR_UDID" "$SIMULATOR_APP_PATH"
+xcrun simctl install "$SIMULATOR_UDID" "$SIMULATOR_APP_PATH"   # only if absent
 xcrun simctl launch "$SIMULATOR_UDID" "$APP_BUNDLE_ID"
 xcrun simctl io "$SIMULATOR_UDID" screenshot "$EVIDENCE_DIR/before.png"
 ```
 
-These variables are task inputs, not defaults to guess. A booted device needs no second boot. If commands fail with access errors, resolve the execution context before repairing system services.
+These variables are task inputs, not defaults to guess. If commands fail with access errors, resolve the execution context before touching system services.
 
-## Disposable test target
+## 2. Choose where the test lives
 
-If XcodeGen is available, this project shape was verified on Xcode 27.0. Otherwise use an authorized existing UI test target or create the equivalent Xcode project. Do not add a product dependency solely for this harness.
+**Preferred: the project's existing UI test target.** Add one temporary test file in a throwaway worktree. You get the project's build settings and, often, its test entry points (launch arguments, fixtures, preview modes) that reach a screen without signing in. `xcodebuild test -only-testing:<Target>/<Class>` runs just that file.
+
+**Otherwise: a disposable harness project** that activates the already-installed app by bundle identifier. With XcodeGen:
 
 ```yaml
 name: SimulatorAcceptance
@@ -49,57 +52,78 @@ schemes:
       targets: [AcceptanceUITests]
 ```
 
-Use a task-specific runner identifier if a similarly named harness is installed. Set the deployment target low enough for the chosen runtime.
+Without XcodeGen, create the equivalent UI-testing bundle in Xcode. Set the deployment target no higher than the chosen runtime, and don't add a product dependency just for the harness.
 
-An independent UI test can inspect an installed app without building it as a target dependency:
+## 3. Write a test that asserts outcomes
 
 ```swift
 import XCTest
 
 final class AcceptanceTests: XCTestCase {
+    private func evidence(_ name: String) {
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
     func testRequestedInteraction() throws {
-        let app = XCUIApplication(bundleIdentifier: "YOUR_APP_BUNDLE_ID")
-        app.activate()
-        // Add the actual action and observable assertions for this task.
-        // Use a label only after observing it in app.debugDescription.
-        print(app.debugDescription)
-        let evidence = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        evidence.name = "observed-app-state"
-        evidence.lifetime = .keepAlways
-        add(evidence)
+        // Existing target: XCUIApplication() with the project's test launch arguments.
+        // Disposable harness: XCUIApplication(bundleIdentifier: "YOUR_APP_BUNDLE_ID"), then .activate().
+        let app = XCUIApplication()
+        app.launchArguments = ["-YourFixtureArgument"]
+        app.launch()
+        print(app.debugDescription)          // find real labels before asserting on them
+
+        let field = app.textFields["Observed label"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        for ch in "03/18/1931" { field.typeText(String(ch)) }   // one keystroke at a time
+        XCTAssertEqual(field.value as? String, "03/18/1931")
+        evidence("after-typing")
     }
 }
 ```
 
-This snippet is a scaffold, not a passing acceptance test. Add meaningful assertions, such as the expected sheet title appearing and the previous sheet disappearing.
+This is a scaffold. Replace the labels and assertions with the ones the task needs, found in `app.debugDescription` rather than guessed.
+
+Run it, with a fresh result bundle each time and verbose output sent to a log:
 
 ```sh
-xcodegen generate --spec "$HARNESS_DIR/project.yml"
 xcodebuild test \
-  -project "$HARNESS_DIR/SimulatorAcceptance.xcodeproj" \
-  -scheme SimulatorAcceptance \
+  -project "$PROJECT" -scheme "$SCHEME" \
   -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
-  -derivedDataPath "$HARNESS_DIR/build" \
+  -only-testing:"$UI_TEST_TARGET/$TEST_CLASS" \
   -parallel-testing-enabled NO \
-  -resultBundlePath "$HARNESS_DIR/results.xcresult"
+  -resultBundlePath "$EVIDENCE_DIR/results.xcresult" > "$EVIDENCE_DIR/test.log" 2>&1
+xcrun xcresulttool export attachments \
+  --path "$EVIDENCE_DIR/results.xcresult" --output-path "$EVIDENCE_DIR/attachments"
 ```
 
-Use a new result bundle path for each run. Redirect verbose build output to a task-local log and inspect errors and the final result. Long commands should yield so progress can still be reported.
+`manifest.json` in the export maps each attachment's name to its exported file. Look at the screenshots: a passing test can still hide a problem the assertions didn't cover.
 
-## Interactive controller pattern
+## Traps that pass silently
 
-For an unfamiliar map, a short-lived XCTest controller avoids rebuilding for every tap. The originating session verified this pattern:
+- **Below the fold.** An element can exist without being hittable; `tap()` on it does nothing and raises no error. Scroll until `isHittable` before tapping.
+- **Label vs control.** A form row's frame can span the whole row, so `tap()` lands on the label and a switch doesn't flip. Tap the control's coordinate and assert its new value.
+- **Covered by the keyboard or an alert.** After revealing something (a picker, a sheet), check it's hittable. If not, find what covers it — often the software keyboard is still up. Report it: a person would hit it too.
+- **Clearing a field.** Put the cursor at the end (for right-aligned text, tap near the right edge), then send `XCUIKeyboardKey.delete` once per character.
+- **Bulk vs per-keystroke input.** Code that reacts to each keystroke can behave differently when the whole string arrives at once; type one character at a time.
 
-1. Activate `XCUIApplication(bundleIdentifier:)` and write `app.debugDescription` and `XCUIScreen.main.screenshot().pngRepresentation` into the runner's Documents directory. Print that directory's path.
-2. Poll a small `command.json` there for a bounded session, such as 15 minutes. Whitelist inspect, tap, double tap, drag, label tap, and finish. Do not accept arbitrary code or expose a remote listener.
-3. Give each command a unique ID and execute it once. Refresh the tree and screenshot, then atomically write a matching completion ID. Acknowledge `finish` before returning.
-4. The host writes commands atomically and waits for the matching ID with a finite timeout. A timeout is not success; inspect the runner log before retrying.
-5. Inspect the new screenshot/tree before deciding the next action. Record acceptance assertions separately from the controller's own test status.
+## Optional: an interactive controller
 
-Useful XCTest primitives:
+When the screen is unfamiliar and rebuilding for every tap is slow, a short-lived test can act as a controller:
+
+1. Activate the app; write `app.debugDescription` and a screenshot into the runner's Documents directory, and print that path.
+2. For a bounded session (say 15 minutes), poll a small `command.json` there. Accept only a fixed whitelist (inspect, tap, double tap, drag, label tap, finish). Never accept arbitrary code or open a network listener.
+3. Give each command a unique ID, execute it once, refresh the tree and screenshot, then atomically write a matching completion ID. Acknowledge `finish` before returning.
+4. The host writes commands atomically and waits for the matching ID with a finite timeout. A timeout is not success; read the runner log before retrying.
+5. Decide each next step from the new screenshot and tree. Keep acceptance assertions separate from the controller's own pass/fail.
+
+Useful primitives:
 
 ```swift
-let point = app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y))
+let point = app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y))   // 0...1, relative to the app frame
 point.tap()
 point.doubleTap()
 point.press(forDuration: 0.1, thenDragTo: endPoint)
@@ -108,12 +132,8 @@ app.descendants(matching: .any)
     .firstMatch.tap()
 ```
 
-Normalized coordinates are relative to the app frame, not the desktop Device Hub window. Use the latest screenshot and confirm orientation/frame; do not reuse coordinates after a camera move or layout change. Validate coordinates are between 0 and 1 and prefer exact visible controls when practical.
+Coordinates are relative to the app frame, not the Device Hub window. Re-derive them from the latest screenshot after any layout change, scroll, or rotation.
 
-In the verified run, a switch-label action completed without visibly changing the switch. A direct coordinate tap changed it. Inspect the resulting switch and rendered layer; successful input delivery alone does not prove a state transition.
+## Cleanup
 
-Development-client prompts or system alerts may sit above the app. Handle the observed prompt before continuing. Do not label a hidden-map tap as a map test.
-
-## Cleanup and evidence
-
-End the controller, verify the runner exits, stop only the Metro/test processes started for the task, and restore changed preferences. Preserve screenshots, source commit, binary/runtime identity, and actual assertions. A development client serving a clean commit remains distinct from a release/TestFlight build.
+End any controller and confirm the runner exited. Shut down simulators you booted, remove harness files and worktrees, stop servers you started, and restore changed settings. Keep the screenshots, source commit, build and runtime identity, and the assertions you actually made.

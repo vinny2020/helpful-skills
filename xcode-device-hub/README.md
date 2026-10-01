@@ -1,38 +1,38 @@
 # Xcode Device Hub skill
 
-A reusable agent skill for the Xcode 26-to-27 simulator transition. Discover Device Hub, distinguish sandbox failures from installation failures, and complete requested app checks when desktop automation cannot attach.
+A reusable agent skill for the Xcode 26-to-27 simulator transition. It teaches an agent to probe the installed layout before diagnosing anything, to tell sandbox failures from broken installations, and to check an app's UI through simctl + XCTest when desktop automation can't attach — or when the check needs taps and typing, which simctl can't send.
 
-The workflow was exercised on Xcode 27.0 (27A266a) with an iPhone 18 Pro Max simulator running iOS 27.0. Version-specific claims and the older-runtime forum workaround are qualified in [the evidence notes](references/sources-and-scope.md).
+Verified on Xcode 27.0 (27A266a) on two Macs, with iPhone 18 Pro and iPhone 18 Pro Max simulators on iOS 27.0. Version-specific claims and the older-runtime forum report are qualified in [the evidence notes](references/sources-and-scope.md).
 
 ## Install
 
-This directory is a self-contained skill and can be the root of a GitHub repository. Keep `SKILL.md`, `agents/`, `references/`, and `scripts/` together.
+Keep `SKILL.md`, `references/`, and `scripts/` together. `agents/openai.yaml` is optional metadata for Codex.
 
-For Codex, copy or clone this directory to `~/.codex/skills/xcode-device-hub`, or your configured skills directory. In a new session, invoke:
+| Agent | Where to put this folder | How to use it |
+| --- | --- | --- |
+| Claude Code | `~/.claude/skills/xcode-device-hub/` (all projects) or `.claude/skills/xcode-device-hub/` (one project) | Picked up automatically in new sessions; or ask for it by name. |
+| Codex | `~/.codex/skills/xcode-device-hub/` or your configured skills directory | `Use $xcode-device-hub to check my app in Xcode 27.` |
+| Any other agent | Anywhere it can read files | Point it at `SKILL.md`, e.g. "Follow xcode-device-hub/SKILL.md to check my app on the simulator." |
 
-```text
-Use $xcode-device-hub to run my iOS acceptance check in Xcode 27.
-```
+The skill doesn't depend on a particular agent or desktop automation tool, and it grants no permissions: the agent's own tooling and authorization rules still apply.
 
-Other agents can read `SKILL.md` directly, subject to their own tooling and authorization rules. The skill does not require a particular desktop automation provider.
-
-## Diagnose without changing the selected Xcode
+## Diagnose without changing anything
 
 ```sh
-python3 scripts/diagnose.py
+python3 scripts/diagnose.py            # full report (JSON)
+python3 scripts/diagnose.py --redact   # masks simulator UDIDs and your home path, for sharing
+python3 scripts/diagnose.py --no-simctl
 ```
 
-Python 3 and Apple's installed command-line tools suffice; no pip packages are required. The script does not explicitly boot devices, install apps, erase data, or change system configuration. Normal tool invocation may start Apple's background services.
+It needs only Python 3 and Apple's command-line tools; no pip packages. It runs three read-only commands (`xcode-select -p`, `xcodebuild -version`, `xcrun simctl list --json`) and reads app bundles' `Info.plist` files. It doesn't boot, erase, or install anything, change `xcode-select`, write files, use the network, or call sudo. Running `simctl` can start Apple's background simulator service, which is normal.
 
-If the agent sandbox blocks CoreSimulator, use that environment's approved host-access mechanism. The script does not bypass permissions or invoke sudo. Review generated diagnostics before publishing local paths and device identifiers.
-
-XCTest fallback requires a compatible simulator app. XcodeGen is optional, used only by the disposable-project example.
+If the agent's sandbox blocks CoreSimulator, use that environment's approved host-access mechanism; the script doesn't bypass permissions.
 
 ## Contents
 
-- [SKILL.md](SKILL.md): discovery, diagnosis, runtime selection, provenance, and acceptance.
-- [XCTest fallback](references/xctest-fallback.md): temporary tests and the verified controller pattern.
-- [Sources and scope](references/sources-and-scope.md): local observations and the Apple forum report.
-- [Diagnostic script](scripts/diagnose.py): installation, runtime, and device inspection.
+- [SKILL.md](SKILL.md): discovery, failure classification, runtime choice, what each tool can do, reaching the screen safely, what makes a UI check real, cleanup.
+- [The XCTest route](references/xctest-fallback.md): temporary UI tests in an existing target or a disposable project, exporting evidence, traps that pass silently, an optional interactive controller.
+- [Sources and scope](references/sources-and-scope.md): what was observed on which installation, and the Apple forum report.
+- [Diagnostic script](scripts/diagnose.py).
 
-This package excludes credentials, the original forum PDF, private app screenshots, and machine-specific test identifiers. Publishing the repository is a separate user action.
+This package contains no credentials, private screenshots, or machine-specific identifiers.

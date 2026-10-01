@@ -38,10 +38,30 @@ def frontend(path):
     return result
 
 
+def redact(report):
+    """Mask simulator UDIDs and the home-directory path so the report can be shared."""
+    home = str(Path.home())
+    udids = {}
+
+    def walk(value, key=None):
+        if isinstance(value, dict):
+            return {k: walk(v, k) for k, v in value.items()}
+        if isinstance(value, list):
+            return [walk(v, key) for v in value]
+        if isinstance(value, str):
+            if key == "udid":
+                return udids.setdefault(value, f"<udid-{len(udids) + 1}>")
+            return value.replace(home, "~")
+        return value
+
+    return walk(report)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-simctl", action="store_true", help="Only inspect Xcode and frontend bundles")
     parser.add_argument("--timeout", type=float, default=15, help="Per-command timeout in seconds (default: 15)")
+    parser.add_argument("--redact", action="store_true", help="Mask simulator UDIDs and the home-directory path before printing")
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
@@ -92,6 +112,8 @@ def main():
         "Check access context before diagnosing missing executables or broken services. "
         "Device model and OS runtime are separate. This report does not test input or the app."
     )
+    if args.redact:
+        report = redact(report)
     print(json.dumps(report, indent=2))
 
 
