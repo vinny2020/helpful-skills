@@ -1,0 +1,13 @@
+profile.yaml
+*.local.yaml
+# run outputs: contain real employer names and reputation notes
+briefing.json
+briefing.md
+email.html
+email.txt
+subject.txt
+ledger.md
+tally.md
+run-log.md
+runs/
+__pycache__/

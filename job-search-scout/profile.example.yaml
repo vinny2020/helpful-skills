@@ -1,0 +1,101 @@
+# Example profile for job-search-scout. Copy to profile.yaml and edit.
+# Everything below is fictional — the person, employers and resume.
+# profile.yaml is git-ignored: it holds a resume and pay expectations.
+# Full schema and defaults: references/profile-schema.md
+
+candidate:
+  name: "Sam Okafor"
+  home_metro: "Chicago, IL"
+  country_code: "US"
+
+resume:
+  # Inline text is the most reliable option for scheduled runs, which often
+  # execute somewhere that can't read files on your laptop.
+  text: |
+    Sam Okafor — Senior Data Engineer
+    Northwind Health (2022–present): Airflow and dbt pipelines on Snowflake for
+      claims analytics; led migration from nightly batch to incremental models.
+    Contoso Freight (2018–2022): Python/Spark ETL for shipment tracking, PostgreSQL,
+      data-quality monitoring, mentored two junior engineers.
+    Skills: Python, SQL, dbt, Airflow, Spark, Snowflake, PostgreSQL, Terraform,
+      data modelling, data quality, LLM-assisted development.
+
+summary:
+  current_title: "Senior Data Engineer"
+  core_skills: [Python, SQL, dbt, Airflow, Spark, Snowflake, PostgreSQL, Terraform]
+  domains: [healthcare, logistics, analytics]
+  past_employers: [Northwind Health, Contoso Freight]
+  not_experienced_in: [pre-sales, people management beyond mentoring]
+
+targets:
+  - group: "Staff / Lead Data Engineer"
+    titles: ["Staff Data Engineer", "Lead Data Engineer", "Principal Data Engineer"]
+    search_phrases: ["staff data engineer dbt airflow"]
+  - group: "Analytics Engineering"
+    titles: ["Senior Analytics Engineer", "Staff Analytics Engineer"]
+  - group: "Data Engineering Management"
+    titles: ["Data Engineering Manager", "Manager, Data Platform"]
+
+workplace:
+  priority: [hybrid, remote, onsite]
+  hybrid_metros: ["Chicago, IL", "Evanston, IL"]
+  onsite_metros: ["Chicago, IL"]
+  relocation:
+    willing: false
+    min_base: 200000
+
+compensation:
+  currency: "USD"
+  base_floor: 150000
+  show_ote: true
+
+filters:
+  dealbreakers: [pre_sales, security_clearance, staffing_funnel]
+  exclude_specializations: [embedded, mainframe, hardware]
+  exclude_companies: []
+  max_travel_pct: 15
+
+boosts:
+  skills: [dbt, Airflow, data contracts, LLMs]
+  domains: [healthcare, climate]
+  preferred_companies: []
+
+reputation:
+  enabled: true
+  hard_flag:
+    layoff_pct_12mo: 10
+    declining_revenue_guidance: true
+    quiet_layoffs: true
+    comp_band_cuts: true
+  caution:
+    rating_below: 3.5
+    recommend_below: 60
+  reverify_after_days: 30
+  verify_top_n_per_section: 2
+  known: []        # filled in by your own runs; keep these notes private
+
+sources:
+  enabled: [indeed, dice, builtin, web]
+  disabled: []
+  limits:
+    indeed: 2
+  builtin_urls:
+    - https://builtin.com/jobs/remote/data-analytics/search/staff-data-engineer
+    - https://builtin.com/jobs/remote/data-analytics/search/analytics-engineer
+    - https://builtin.com/jobs/chicago/data-analytics
+
+output:
+  max_per_section: 10
+  top_picks: 2
+  delivery:
+    chat: true
+    email:
+      enabled: false
+      to: "you@example.com"
+      subject: "🔍 Job Search – {date}"
+      max_per_section: 6
+
+ledger:
+  auto_update: false
+  adjudications: []      # filled in by your own runs; keep private
+  staffing_funnels: []
